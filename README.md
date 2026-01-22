@@ -2,7 +2,13 @@
 
 Collection Of Osint/scraper scripts 🚀
 
-Little scripts i have made, put some of em' together here as a osintMULTItool / framework 🎩🐧
+5 Little scripts i have made, put some 
+
+of em' together here for you can use 
+
+one or all script on target     
+
+osintMULTItool / framework 🎩🐧
 
 run em' one by one 
 
