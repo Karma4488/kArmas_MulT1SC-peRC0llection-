@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
-# ======================================================================
-# ĥ⁴č̣ƙ Ťĥɛ Płªɲəŧ
-# MATRIX cURL DEFENSIVE AUDIT FRAMEWORK
-# Author : kArmasec
-# Mode   : AUTHORIZED / DEFENSIVE SECURITY
-# ======================================================================
 
 set -u
 
-# ------------------ COLORS ------------------
 GREEN="\033[1;32m"
 BLUE="\033[1;34m"
 RED="\033[1;31m"
@@ -17,7 +10,6 @@ DIM="\033[2m"
 RESET="\033[0m"
 BOLD="\033[1m"
 
-# ------------------ GLOBALS -----------------
 APP="ĥ⁴č̣ƙ Ťĥɛ Płªɲəŧ :: Matrix Audit"
 KEYDIR="$HOME/.matrix_keys"
 
@@ -28,6 +20,18 @@ declare -A RESULTS=(
   [methods]=0
   [cache]=0
 )
+
+pause() {
+  echo
+  read -r -p "Press Enter to continue..."
+}
+
+cleanup() {
+  [[ -n "${RAIN_PID:-}" ]] && kill "$RAIN_PID" 2>/dev/null || true
+  tput cnorm 2>/dev/null || true
+  clear
+}
+trap cleanup EXIT INT TERM
 
 # ================== VERIFIER MODE ==================
 if [[ "${1:-}" == "verify" ]]; then
@@ -47,11 +51,14 @@ if [[ "${1:-}" == "verify" ]]; then
   exit 0
 fi
 
-# ================== TARGET ==================
 TARGET="${1:-}"
 [[ -z "$TARGET" ]] && echo "Usage: $0 https://example.com" && exit 1
 
-# ================== CRYPTO ==================
+if [[ ! "$TARGET" =~ ^https?:// ]]; then
+  echo "Error: target must start with http:// or https://"
+  exit 1
+fi
+
 init_keys() {
   mkdir -p "$KEYDIR"
   if [[ ! -f "$KEYDIR/private.pem" ]]; then
@@ -65,19 +72,17 @@ sign_file() {
   openssl dgst -sha256 -sign "$KEYDIR/private.pem" -out "$1.sig" "$1"
 }
 
-# ================== MATRIX RAIN ==================
-ROWS=$(tput lines)
-COLS=$(tput cols)
+ROWS=$(tput lines 2>/dev/null || echo 24)
+COLS=$(tput cols 2>/dev/null || echo 80)
 
 matrix_rain() {
-  while :; do
-    tput cup $((RANDOM%ROWS)) $((RANDOM%COLS))
-    printf "${GREEN}%s${RESET}" "$(printf \\$(printf '%03o' $((RANDOM%94+33))))"
-    sleep 0.015
+  while true; do
+    tput cup "$((RANDOM % ROWS))" "$((RANDOM % COLS))" 2>/dev/null || true
+    printf "${GREEN}%s${RESET}" "$(printf "\\$(printf '%03o' $((RANDOM % 94 + 33)))")"
+    sleep 0.03
   done
 }
 
-# ================== UI ==================
 draw_frame() {
   clear
   echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${RESET}"
@@ -85,7 +90,7 @@ draw_frame() {
   printf "${GREEN}║ TARGET: %-44s ║${RESET}\n" "$TARGET"
   echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${RESET}"
   echo -e "${BLUE}║ [1] Headers [2] TLS [3] CORS [4] Methods [5] Cache   ║${RESET}"
-  echo -e "${BLUE}║ [6] Charts  [7] Export  [8] AI Risk  [Q] Quit       ║${RESET}"
+  echo -e "${BLUE}║ [6] Charts  [7] Export  [8] AI Risk  [Q] Quit        ║${RESET}"
   echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${RESET}"
 }
 
@@ -99,62 +104,71 @@ panel_end() {
   echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${RESET}"
 }
 
-# ================== CHECKS ==================
 check_headers() {
   panel "Security Headers"
-  out=$(curl -Is "$TARGET" | grep -Ei "content-security-policy|x-frame-options|x-content-type-options|strict-transport-security")
+  out=$(curl -k -sS -I --max-time 10 "$TARGET" | grep -Ei "content-security-policy|x-frame-options|x-content-type-options|strict-transport-security" || true)
   [[ -n "$out" ]] && RESULTS[headers]=1 && echo "$out" || echo -e "${RED}Missing common security headers${RESET}"
   panel_end
+  pause
 }
 
 check_tls() {
   panel "TLS / HTTPS"
-  out=$(curl -vI --https-only "$TARGET" 2>&1 | grep -Ei "TLS|SSL")
+  out=$(curl -k -sS -vI --https-only --max-time 10 "$TARGET" 2>&1 | grep -Ei "TLS|SSL" || true)
   [[ -n "$out" ]] && RESULTS[tls]=1 && echo "$out" || echo -e "${RED}No TLS detected${RESET}"
   panel_end
+  pause
 }
 
 check_cors() {
   panel "CORS Policy"
-  out=$(curl -Is -H "Origin: https://evil.example" "$TARGET" | grep -i access-control)
+  out=$(curl -k -sS -I --max-time 10 -H "Origin: https://evil.example" "$TARGET" | grep -i access-control || true)
   [[ -n "$out" ]] && RESULTS[cors]=1 && echo "$out" || echo -e "${DIM}No CORS headers${RESET}"
   panel_end
+  pause
 }
 
 check_methods() {
   panel "HTTP Methods"
-  out=$(curl -X OPTIONS -i "$TARGET" | grep -i allow)
+  out=$(curl -k -sS -X OPTIONS -i --max-time 10 "$TARGET" | grep -i allow || true)
   [[ -n "$out" ]] && RESULTS[methods]=1 && echo "$out" || echo -e "${DIM}No Allow header${RESET}"
   panel_end
+  pause
 }
 
 check_cache() {
   panel "Cache Control"
-  out=$(curl -Is "$TARGET" | grep -i cache-control)
+  out=$(curl -k -sS -I --max-time 10 "$TARGET" | grep -i cache-control || true)
   [[ -n "$out" ]] && RESULTS[cache]=1 && echo "$out" || echo -e "${DIM}No cache-control${RESET}"
   panel_end
+  pause
 }
 
-# ================== ASCII CHART ==================
 draw_chart() {
   panel "Security Coverage Chart"
   for k in headers tls cors methods cache; do
-    v=${RESULTS[$k]}
-    bar=$(printf '█%.0s' $(seq 1 $((v*10))))
-    [[ $v -eq 1 ]] && s="${GREEN}OK${RESET}" || s="${RED}MISS${RESET}"
+    v="${RESULTS[$k]}"
+    if [[ "$v" -eq 1 ]]; then
+      bar="██████████"
+      s="${GREEN}OK${RESET}"
+    else
+      bar=""
+      s="${RED}MISS${RESET}"
+    fi
     printf "%-10s [%-10s] %b\n" "$k" "$bar" "$s"
   done
   panel_end
+  pause
 }
 
-# ================== AI RISK ==================
 ai_risk() {
   panel "🧠 AI Risk Interpretation"
   score=0
+
   [[ ${RESULTS[headers]} -eq 0 ]] && echo "[-] Missing headers → XSS / Clickjacking" && ((score+=2))
   [[ ${RESULTS[tls]} -eq 0 ]] && echo "[-] No TLS → MITM risk" && ((score+=3))
   [[ ${RESULTS[cors]} -eq 0 ]] && echo "[!] No explicit CORS policy" && ((score+=1))
-  [[ ${RESULTS[methods]} -eq 0 ]] && echo "[-] Methods unrestricted" && ((score+=2))
+  [[ ${RESULTS[methods]} -eq 0 ]] && echo "[-] Methods unrestricted or unknown" && ((score+=2))
   [[ ${RESULTS[cache]} -eq 0 ]] && echo "[!] Cache not controlled" && ((score+=1))
 
   echo
@@ -165,10 +179,10 @@ ai_risk() {
   else
     echo -e "${RED}${BOLD}Overall Risk: HIGH${RESET}"
   fi
+
   panel_end
 }
 
-# ================== EXPORT ==================
 export_reports() {
   TS=$(date +%Y%m%d_%H%M%S)
   init_keys
@@ -192,11 +206,13 @@ export_reports() {
 EOF
 
   cat > "$HTML" <<EOF
-<html><body style="background:black;color:#00ff88;font-family:monospace">
+<html>
+<body style="background:black;color:#00ff88;font-family:monospace">
 <h1>$APP</h1>
 <p><b>Target:</b> $TARGET</p>
 <pre>$(cat "$JSON")</pre>
-</body></html>
+</body>
+</html>
 EOF
 
   ai_risk > "$AI"
@@ -209,13 +225,14 @@ EOF
   echo "$JSON / $HTML / $AI"
   echo "Public key: $KEYDIR/public.pem"
   panel_end
+  pause
 }
 
-# ================== RUN ==================
-tput civis
-matrix_rain & RAIN_PID=$!
+tput civis 2>/dev/null || true
+matrix_rain &
+RAIN_PID=$!
 
-while :; do
+while true; do
   draw_frame
   read -rsn1 key
   case "$key" in
@@ -226,6 +243,7 @@ while :; do
     5) check_cache ;;
     6) draw_chart ;;
     7) export_reports ;;
-    8) ai_risk ;;
-    q|Q) kill "$RAIN_PID"; tput cnorm; clear; exit ;;
+    8) ai_risk; pause ;;
+    q|Q) exit 0 ;;
   esac
+done
